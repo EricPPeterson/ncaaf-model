@@ -65,15 +65,15 @@ off_efficiency <- function(df, pos_def, oppo_tm, pass_run){
     dplyr::mutate(pass_epa = sum(EPA),
                   pass_wpa = sum(wpa),
                   pass_success = sum(success)) %>%
-    dplyr::select(game_id, !!sym(pos_def), !!sym(oppo_tm), pass_epa, pass_wpa, pass_success) %>% 
+    dplyr::select(game_id, !!sym(pos_def), pass_epa, pass_wpa, pass_success) %>% 
     distinct()
-  if(pass_run == 0) {colnames(out)[4:6] <- c('rush_epa', 'rush_wpa', 'rush_success')}
+  if(pass_run == 0) {colnames(out)[3:5] <- c('rush_epa', 'rush_wpa', 'rush_success')}
   return(out)
 }
 off_pass_eff <- off_efficiency(pbp_clean, 'pos_team', 'def_pos_team',1)
 def_pass_eff <- off_efficiency(pbp_clean, 'def_pos_team', 'pos_team',1)
 off_rush_eff <- off_efficiency(pbp_clean, 'pos_team', 'def_pos_team',0)
-def_rush_eff <- off_efficiency(pbp_clean, 'def_pos_team', 'pos_team',1)
+def_rush_eff <- off_efficiency(pbp_clean, 'def_pos_team', 'pos_team',0)
 #################################################################################################################
 #total plays per team by game
 #################################################################################################################
@@ -103,9 +103,9 @@ game_plays_def <- left_join(def_plays_run, def_plays_pass, by = c('game_id', 'de
 #join plays with efficiency data
 #################################################################################################################
 library(lookup)
-off_total_efficiency <- left_join(off_pass_eff,off_rush_eff, by = c('game_id', 'pos_team', 'def_pos_team'))
-def_total_efficiency <- left_join(def_pass_eff, def_rush_eff, by = c('game_id', 'def_pos_team', 'pos_team'))
-off_total_efficiency <- left_join(off_total_efficiency, game_plays_pos, by = c('game_id', 'pos_team'))
+off_total_efficiency <- left_join(off_pass_eff,off_rush_eff, by = c('game_id', 'pos_team'))
+def_total_efficiency <- left_join(def_pass_eff, def_rush_eff, by = c('game_id', 'def_pos_team'))
+off_total_efficiency <- left_join(off_total_efficiency, game_plays_pos, by = c('game_id','pos_team'))
 def_total_efficiency <- left_join(def_total_efficiency, game_plays_def, by = c('game_id', 'def_pos_team'))
 #################################################################################################################
 #turn efficiency stats into per play stats
@@ -166,3 +166,10 @@ def_rush_eff_3 <- down_efficiency(pbp_clean,0,'def_pos_team',3)
 ##################################################################################################################
 #combine play data with efficiency dfs
 ##################################################################################################################
+library(tidyverse)
+off_total_efficiency <- list(off_total_efficiency,off_pass_eff_1,off_pass_eff_2,off_pass_eff_3,
+                             off_rush_eff_1, off_rush_eff_2, off_rush_eff_3) %>% 
+  reduce(left_join, by = c('game_id', 'pos_team'))
+def_total_efficiency <- list(def_total_efficiency,def_pass_eff_1,def_pass_eff_2,def_pass_eff_3,
+                             def_rush_eff_1, def_rush_eff_2, def_rush_eff_3) %>% 
+  reduce(left_join, by = c('game_id', 'def_pos_team'))
