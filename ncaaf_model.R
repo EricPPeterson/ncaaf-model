@@ -165,6 +165,15 @@ def_rush_eff_1 <- down_efficiency(pbp_clean,0,'def_pos_team',1)
 def_rush_eff_2 <- down_efficiency(pbp_clean,0,'def_pos_team',2)
 def_rush_eff_3 <- down_efficiency(pbp_clean,0,'def_pos_team',3)
 ##################################################################################################################
+#time per drive and drives per game
+##################################################################################################################
+drive_function <- function(df, pos_def){
+  out <- df %>%
+    group_by(game_id, pos_def){
+      dplyr::summarise(avg_drive = )
+    }
+}
+##################################################################################################################
 #combine play data with efficiency dfs
 ##################################################################################################################
 library(tidyverse)
@@ -221,7 +230,7 @@ library(tidymodels)
 ##################################################################################################################
 #split data
 ##################################################################################################################
-data_split_lm <- initial_split(off_total_efficiency, prop = 4/5)
+data_split_lm <- initial_split(off_total_efficiency_NA, prop = 3/4)
 train_lm <- training(data_split_lm)
 test_lm <- testing(data_split_lm)
 ##################################################################################################################
@@ -255,3 +264,10 @@ model_summary <- off_start_fit %>%
 start_preds <- predict(off_start_fit, test_lm)
 bind_preds <- bind_cols(start_preds, test_lm %>% select(total_pts))
 rmse(total_pts, .pred, data = bind_preds)
+##################################################################################################################
+#collect significant variables
+##################################################################################################################
+sig_names_lm <- model_summary %>% 
+  dplyr::filter(p.value < 0.05)
+sig_names_lm <- list(sig_names_lm$term)
+off_tot_eff_sig <- off_total_efficiency_NA[,which((names(off_total_efficiency_NA) %in% sig_names_lm) == TRUE)]
