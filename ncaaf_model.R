@@ -1,4 +1,4 @@
-setwd("/Users/ericp/OneDrive/Documents/GitHub/ncaaf-model")
+insetwd("/Users/ericp/OneDrive/Documents/GitHub/ncaaf-model")
 library(dplyr)
 library(cfbfastR)
 library(ggplot2)
@@ -195,15 +195,21 @@ def_total_efficiency <- left_join(def_total_efficiency, avg_dr_def, by = c('game
 ##################################################################################################################
 #touchdown points
 ##################################################################################################################
-td_pts <- function(df,pos_def){
+td_pts <- function(df){
   out <- df %>%
-    dplyr::group_by(game_id, !!sym(pos_def)) %>%
+    dplyr::group_by(game_id, home) %>%
     dplyr::summarise(td_pts = sum(touchdown) * 7)
+  colnames(out)[2] <- 'pos_team'
+  out2 <- df %>%
+    dplyr::group_by(game_id, away) %>%
+    dplyr::summarise(td_pts = sum(touchdown) * 7)
+  colnames(out2)[2] <- 'pos_team'  
+  out <- bind_rows(out,out2)
   return(out)
 }
 
-off_tds <- td_pts(pbp_clean, 'pos_team')
-def_tds <- td_pts(pbp_clean, 'def_pos_team')
+off_tds <- td_pts(pbp_clean)
+def_tds <- td_pts(pbp_clean)
 ##################################################################################################################
 #expected FG points
 ##################################################################################################################
@@ -219,18 +225,6 @@ exp_fg <- function(df, pos_def){
 off_fg_pts <- exp_fg(pbp_clean, 'pos_team')
 def_fg_pts <- exp_fg(pbp_clean, 'def_pos_team')
 ##################################################################################################################
-#safety / defensive points
-##################################################################################################################
-def_pts <- function(df, pos_def){
-  df <- df %>% dplyr::filter(defense_score_play == 1)
-  df <- df %>% dplyr::filter(ep_after == -7)
-  out <- df %>%
-    dplyr::group_by(game_id, !!sym(pos_def)) %>%
-    dplyr::summarize(def_pts = sum(pos_score_pts))
-  return(out)
-}
-total_def_pts <- def_pts(pbp_clean, 'def_pos_team')
-##################################################################################################################
 #total points offense
 ##################################################################################################################
 off_total_pts <- left_join(off_tds, off_fg_pts, by = c('game_id', 'pos_team'))
@@ -238,7 +232,7 @@ off_total_pts$fgs_pts <- ifelse(is.na(off_total_pts$fgs_pts), 0, off_total_pts$f
 off_total_pts$def_pts <- lookup(off_total_pts$game_id, total_def_pts$game_id, total_def_pts$def_pts)
 off_total_pts$def_pts <- ifelse(is.na(off_total_pts$def_pts) == TRUE, 0, off_total_pts$def_pts)
 off_total_pts <- off_total_pts %>%
-  dplyr::mutate(total_pts = td_pts + fgs_pts + def_pts)
+  dplyr::mutate(total_pts = td_pts + fgs_pts)
 ##################################################################################################################
 #join pts to offensive efficiency
 ##################################################################################################################
