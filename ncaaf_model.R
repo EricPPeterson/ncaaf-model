@@ -312,6 +312,14 @@ off_total_pts <- off_total_pts %>%
   dplyr::mutate(total_pts = td_pts + fgs_pts)
 off_total_pts <- off_total_pts %>% select(-c(3,4))
 ##################################################################################################################
+#total points defense
+##################################################################################################################
+def_total_pts <- left_join(def_tds, def_fg_pts, by = c('game_id', 'def_pos_team'))
+def_total_pts$fgs_pts <- ifelse(is.na(def_total_pts$fgs_pts), 0, def_total_pts$fgs_pts)
+def_total_pts <- def_total_pts %>%
+  dplyr::mutate(total_pts = td_pts + fgs_pts)
+def_total_pts <- def_total_pts %>% select(-c(3,4))
+##################################################################################################################
 #join pts to offensive efficiency
 ##################################################################################################################
 library(mice)
@@ -325,6 +333,18 @@ off_total_efficiency <- complete(temp_off_eff,1)
 sum(is.na(off_total_efficiency))
 off_total_efficiency <- off_total_efficiency[complete.cases(off_total_efficiency),]
 ##################################################################################################################
+#join pts to defensive efficiency
+##################################################################################################################
+def_total_efficiency <- left_join(def_total_efficiency, def_total_pts, by = c('game_id', 'def_pos_team'))
+def_total_efficiency <- def_total_efficiency %>% 
+  dplyr::select(-c(11:20, 79))
+lapply(def_total_efficiency, function(x) { length(which(is.na(x)))})
+temp_def_eff <- mice(def_total_efficiency, m = 5, maxit = 5, meth = 'rf', seed = 500)
+summary(temp_def_eff)
+def_total_efficiency <- complete(temp_def_eff,1)
+sum(is.na(def_total_efficiency))
+def_total_efficiency <- def_total_efficiency[complete.cases(def_total_efficiency),]
+##################################################################################################################
 #linear model
 ##################################################################################################################
 library(tidyverse)
@@ -332,14 +352,21 @@ library(tidymodels)
 ##################################################################################################################
 #split data
 ##################################################################################################################
-data_split_lm <- initial_split(off_total_efficiency, prop = 3/4)
-train_lm <- training(data_split_lm)
-test_lm <- testing(data_split_lm)
+data_split_lm_off <- initial_split(off_total_efficiency, prop = 3/4)
+train_off_lm <- training(data_split_lm_off)
+test_off_lm <- testing(data_split_lm_off)
+
+data_split_lm_def <- initial_split(def_total_efficiency, prop = 3/4)
+train_def_lm <- training(data_split_lm_def)
+test_def_lm <- testing(data_split_lm_def)
 ##################################################################################################################
 #create recipes for different linear models
 ##################################################################################################################
-lm_start <- recipe(total_pts~., data = train_lm) %>%
+lm_start_off <- recipe(total_pts~., data = train_off_lm) %>%
   update_role(game_id, pos_team, new_role = 'id_variable')
+
+lm_start_def <- recipe(total_pts~., data = train_def_lm) %>%
+  update_role(game_id, def_pos_team, new_role = 'id_variable')
 ##################################################################################################################
 #select model types / select engine
 ##################################################################################################################
@@ -349,62 +376,71 @@ lm_mod <- linear_reg(mode = 'regression', engine = 'glm')
 ##################################################################################################################
 off_start_wflow <- workflow() %>%
   add_model(lm_mod) %>%
-  add_recipe(lm_start)
+  add_recipe(lm_start_off)
+
+def_start_wflow <- workflow() %>%
+  add_model(lm_mod) %>%
+  add_recipe(lm_start_def)
 ##################################################################################################################
 #fit models
 ##################################################################################################################
 off_start_fit <- off_start_wflow %>%
-  fit(data = train_lm)
-model_summary <- off_start_fit %>%
+  fit(data = train_off_lm)
+model_summary_off <- off_start_fit %>%
+  extract_fit_parsnip() %>%
+  tidy()
+
+def_start_fit <- def_start_wflow %>%
+  fit(data = train_def_lm)
+model_summary_def <- def_start_fit %>%
   extract_fit_parsnip() %>%
   tidy()
 ##################################################################################################################
 #make predictions
 ##################################################################################################################
-start_preds <- predict(off_start_fit, test_lm)
-bind_preds <- bind_cols(start_preds, test_lm %>% select(total_pts))
-rmse(.pred, total_pts, data = bind_preds)
+start_preds_off <- predict(off_start_fit, test_off_lm)
+bind_preds_off <- bind_cols(start_preds_off, test_off_lm %>% select(total_pts))
+rmse(.pred, total_pts, data = bind_preds_off)
+
+start_preds_def <- predict(def_start_fit, test_def_lm)
+bind_preds_def <- bind_cols(start_preds_def, test_def_lm %>% select(total_pts))
+rmse(.pred, total_pts, data = bind_preds_def)
 ##################################################################################################################
 #collect significant variables
 ##################################################################################################################
-sig_names_lm <- model_summary %>% 
-    dplyr::filter(p.value < 0.1) 
-sig_names_lm <- list(sig_names_lm$term[sig_names_lm$p.value < 0.1])
-sig_names_lm <- sig_names_lm[[1]][-1]
-new_cols <- c('game_id', 'pos_team', 'total_pts')
-sig_names_lm <- append(sig_names_lm, new_cols)
+sig_names_off <- model_summary_off %>% 
+    dplyr::filter(p.value < 0.1)
+sig_names_def <- model_summary_def %>%
+  dplyr::filter(p.value < 0.1)
+sig_names_off <- list(sig_names_off$term[sig_names_off$p.value < 0.1])
+sig_names_off <- sig_names_off[[1]][-1]
+sig_names_def <- list(sig_names_def$term[sig_names_def$p.value < 0.1])
+sig_names_def <- sig_names_def[[1]][-1]
+new_cols_off <- c('game_id', 'pos_team', 'total_pts')
+new_cols_def <- c('game_id', 'def_pos_team', 'total_pts')
+sig_names_off <- append(sig_names_off, new_cols_off)
+sig_names_def <- append(sig_names_def, new_cols_def)
 off_tot_eff_sig <- off_total_efficiency %>%
-  dplyr::select(all_of(sig_names_lm))
+  dplyr::select(all_of(sig_names_off))
+def_tot_eff_sig <- def_total_efficiency %>%
+  dplyr::select(all_of(sig_names_def))
 ##################################################################################################################
 #visualizations
 ##################################################################################################################
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = pass_wpa)) + geom_point() + ggtitle('Pass WPA vs. total_pts')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = pass_ppa)) + geom_point() + ggtitle('Pass PPA vs. total_pts')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = rush_epa)) + geom_point() + ggtitle('Rush EPA vs. total_pts')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = per_pass_epa)) + geom_point() + ggtitle('Per Pas EPA vs. total_pts')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = avg_ytg_log_pass_1)) + geom_point() + ggtitle('avg_ytg_log_pass first down') 
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = avg_ytg_log_pass_2)) + geom_point() + ggtitle('avg_ytg_log_pass 2nd down')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = total_epa_pass_3)) + geom_point() + ggtitle('total_epa_pass 3rd down')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = avg_ytg_log_rush_1)) + geom_point() + ggtitle('avg_ytg_log_rush 1st down')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = total_drives)) + geom_point() + ggtitle('Total Drives')
-ggplot(off_tot_eff_sig, aes(x = total_pts, y = avg_drive_time)) + geom_point() + ggtitle('Average Drive Time')
-
-ggplot(off_tot_eff_sig, aes(x = pass_wpa)) + geom_density() + ggtitle('Pass WPA')
-ggplot(off_tot_eff_sig, aes(x = rush_epa)) + geom_density() + ggtitle('Rush EPA')
-ggplot(off_tot_eff_sig, aes(x = per_pass_epa)) + geom_density() + ggtitle('per_pass_epa Histogram')
-ggplot(off_tot_eff_sig, aes(x = per_rush_epa)) + geom_density() + ggtitle('per_rush_epa Histogram')
-ggplot(off_tot_eff_sig, aes(x = avg_ytg_log_pass_1)) + geom_density() + ggtitle('avg_ytg_log_pass first down')
-ggplot(off_tot_eff_sig, aes(x = avg_ytg_log_pass_2)) + geom_density() + ggtitle('avg_ytg_log_pass second down')
-ggplot(off_tot_eff_sig, aes(x = total_epa_pass_3)) + geom_density() + ggtitle('total_epa_pass 3rd down')
-ggplot(off_tot_eff_sig, aes(x = avg_ytg_log_rush_1)) + geom_density() + ggtitle('avg_ytg_log_rush 1st down')
-ggplot(off_tot_eff_sig, aes(x = total_drives)) + geom_histogram() + ggtitle('total_drives')
-ggplot(off_tot_eff_sig, aes(x = avg_drive_time)) + geom_density() + ggtitle('avg_drive_time')
-#do total drives, avg_ytg_log 1st down need transformations
+#do ggplot loops here
 ##################################################################################################################
 #feature engineering / interactions / transformations
 ##################################################################################################################
-lm_reduced <- recipe(total_pts~., data = off_tot_eff_sig) %>%
+lm_reduced_off <- recipe(total_pts~., data = off_tot_eff_sig) %>%
   update_role(game_id, pos_team, new_role = 'id_variable') %>%
+  step_interact(terms = ~pass_ppa:avg_drive_time) %>%
+  step_zv(all_predictors()) %>%
+  step_lincomb(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+
+lm_reduced_def <- recipe(total_pts~., data = def_tot_eff_sig) %>%
+  update_role(game_id, def_pos_team, new_role = 'id_variable') %>%
   step_interact(terms = ~pass_ppa:avg_drive_time) %>%
   step_zv(all_predictors()) %>%
   step_lincomb(all_predictors()) %>%
@@ -413,28 +449,46 @@ lm_reduced <- recipe(total_pts~., data = off_tot_eff_sig) %>%
 ##################################################################################################################
 #split data
 ##################################################################################################################
-data_split_reduced <- initial_split(off_tot_eff_sig, prop = 3/4)
-train_reduced <- training(data_split_reduced)
-test_reduced <- testing(data_split_reduced)
+data_split_reduced_off <- initial_split(off_tot_eff_sig, prop = 3/4)
+train_reduced_off <- training(data_split_reduced_off)
+test_reduced_off <- testing(data_split_reduced_off)
+
+data_split_reduced_def <- initial_split(def_tot_eff_sig, prop = 3/4)
+train_reduced_def <- training(data_split_reduced_def)
+test_reduced_def <- testing(data_split_reduced_def)
 ##################################################################################################################
 # set workflows
 ##################################################################################################################
 off_reduced_wflow <- workflow() %>%
   add_model(lm_mod) %>%
-  add_recipe(lm_reduced)
+  add_recipe(lm_reduced_off)
+
+def_reduced_wflow <- workflow() %>%
+  add_model(lm_mod) %>%
+  add_recipe(lm_reduced_def)
 ##################################################################################################################
 #fit models
 ##################################################################################################################
 off_reduced_fit <- off_reduced_wflow %>%
-  fit(data = train_reduced)
-model_reduced_summary <- off_reduced_fit %>%
+  fit(data = train_reduced_off)
+model_reduced_summary_off <- off_reduced_fit %>%
+  extract_fit_parsnip() %>%
+  tidy()
+
+def_reduced_fit <- def_reduced_wflow %>%
+  fit(data = train_reduced_def)
+model_reduced_summary_def <- def_reduced_fit %>%
   extract_fit_parsnip() %>%
   tidy()
 ##################################################################################################################
 #make predictions
 ##################################################################################################################
-reduced_preds <- predict(off_reduced_fit, test_reduced)
-bind_reduced_preds <- bind_cols(reduced_preds, test_reduced %>% select(total_pts))
+reduced_preds_off <- predict(off_reduced_fit, test_reduced_off)
+bind_reduced_preds_off <- bind_cols(reduced_preds, test_reduced_off %>% select(total_pts))
+rmse(.pred, total_pts, data = bind_reduced_preds)
+
+reduced_preds_def <- predict(def_reduced_fit, test_reduced_def)
+bind_reduced_preds_off <- bind_cols(reduced_preds, test_reduced_def %>% select(total_pts))
 rmse(.pred, total_pts, data = bind_reduced_preds)
 ##################################################################################################################
 #tree based models
@@ -442,14 +496,26 @@ rmse(.pred, total_pts, data = bind_reduced_preds)
 ##################################################################################################################
 #split data
 ##################################################################################################################
-data_split_tree <- initial_split(off_total_efficiency, prop = 3/4)
-train_tree <- training(data_split_tree)
-test_tree <- testing(data_split_tree)
+data_split_tree_off <- initial_split(off_total_efficiency, prop = 3/4)
+train_tree_off <- training(data_split_tree_off)
+test_tree_off <- testing(data_split_tree_off)
+
+data_split_tree_def <- initial_split(def_total_efficiency, prop = 3/4)
+train_tree_def <- training(data_split_tree_def)
+test_tree_def <- testing(data_split_tree_def)
 ##################################################################################################################
-#create recipes for different linear models
+#create recipes for different RF off and def
 ##################################################################################################################
-tree_start <- recipe(total_pts~., data = train_tree) %>%
+tree_start_off <- recipe(total_pts~., data = train_tree_off) %>%
   update_role(game_id, pos_team, new_role = 'id_variable') %>%
+  step_interact(terms = ~pass_success:avg_drive_time) %>%
+  step_zv(all_predictors()) %>%
+  step_lincomb(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+
+tree_start_def <- recipe(total_pts~., data = train_tree_def) %>%
+  update_role(game_id, def_pos_team, new_role = 'id_variable') %>%
   step_interact(terms = ~pass_success:avg_drive_time) %>%
   step_zv(all_predictors()) %>%
   step_lincomb(all_predictors()) %>%
@@ -466,29 +532,52 @@ tree_mod <- rand_forest(mode = 'regression', trees = 500, mtry = 3) %>%
 ##################################################################################################################
 off_tree_wflow <- workflow() %>%
   add_model(tree_mod) %>%
-  add_recipe(tree_start)
+  add_recipe(tree_start_off)
+
+def_tree_wflow <- workflow() %>%
+  add_model(tree_mod) %>%
+  add_recipe(tree_start_def)
 ##################################################################################################################
 #fit models
 ##################################################################################################################
 off_tree_fit <- off_tree_wflow %>%
-  fit(data = train_tree)
+  fit(data = train_tree_off)
+
+def_tree_fit <- def_tree_wflow %>%
+  fit(data = train_tree_def)
 ##################################################################################################################
 #make predictions
 ##################################################################################################################
-tree_preds <- predict(off_tree_fit, test_tree)
-tree_bind <- bind_cols(tree_preds, test_tree %>% select(total_pts))
-rmse(.pred, total_pts, data = tree_bind)
+tree_preds_off <- predict(off_tree_fit, test_tree_off)
+tree_bind_off <- bind_cols(tree_preds_off, test_tree_off %>% select(total_pts))
+rmse(.pred, total_pts, data = tree_bind_off)
+
+tree_preds_def <- predict(def_tree_fit, test_tree_def)
+tree_bind_def <- bind_cols(tree_preds_def, test_tree_def %>% select(total_pts))
+rmse(.pred, total_pts, data = tree_bind_def)
 ##################################################################################################################
 #neural net model
 ##################################################################################################################
-data_split_nn <- initial_split(off_total_efficiency, prop = 3/4)
-train_nn <- training(data_split_tree)
-test_nn <- testing(data_split_tree)
+data_split_nn_off <- initial_split(off_total_efficiency, prop = 3/4)
+train_nn_off <- training(data_split_tree)
+test_nn_off <- testing(data_split_tree)
+
+data_split_nn_def <- initial_split(def_total_efficiency, prop = 3/4)
+train_nn_def <- training(data_split_tree_def)
+test_nn_def <- testing(data_split_tree_def)
 ##################################################################################################################
-#select model types / select engine
+#select model types / select recipe
 ##################################################################################################################
-nn_start <- recipe(total_pts~., data = train_tree) %>%
+nn_off <- recipe(total_pts~., data = train_tree_off) %>%
   update_role(game_id, pos_team, new_role = 'id_variable') %>%
+  step_interact(terms = ~pass_success:avg_drive_time) %>%
+  step_zv(all_predictors()) %>%
+  step_lincomb(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+
+nn_def <- recipe(total_pts~., data = train_tree_def) %>%
+  update_role(game_id, def_pos_team, new_role = 'id_variable') %>%
   step_interact(terms = ~pass_success:avg_drive_time) %>%
   step_zv(all_predictors()) %>%
   step_lincomb(all_predictors()) %>%
@@ -503,34 +592,100 @@ nn_mod <- mlp(mode = 'regression') %>%
 # set workflows
 ##################################################################################################################
 off_nn_wflow <- workflow() %>%
-  add_model(tree_mod) %>%
-  add_recipe(nn_start)
+  add_model(nn_mod) %>%
+  add_recipe(nn_off)
+
+def_nn_wflow <- workflow() %>%
+  add_model(nn_mod) %>%
+  add_recipe(nn_def)
 ##################################################################################################################
 #fit models
 ##################################################################################################################
 off_nn_fit <- off_nn_wflow %>%
-  fit(data = train_nn)
+  fit(data = train_nn_off)
+
+def_nn_fit <- def_nn_wflow %>%
+  fit(data = train_nn_def)
 ##################################################################################################################
 #make predictions
 ##################################################################################################################
-nn_preds <- predict(off_nn_fit, test_nn)
-nn_bind <- bind_cols(nn_preds, test_nn %>% select(total_pts))
-rmse(.pred, total_pts, data = nn_bind)
+nn_preds_off <- predict(off_nn_fit, test_nn_off)
+nn_bind_off <- bind_cols(nn_preds_off, test_nn_off %>% select(total_pts))
+rmse(.pred, total_pts, data = nn_bind_off)
+
+nn_preds_def <- predict(def_nn_fit, test_nn_def)
+nn_bind_def <- bind_cols(nn_preds_def, test_nn_def %>% select(total_pts))
+rmse(.pred, total_pts, data = nn_bind_def)
 ##################################################################################################################
 #gbm model
 ##################################################################################################################
-data_split_gbm <- initial_split(off_total_efficiency, prop = 3/4)
-train_gbm <- training(data_split_tree)
-test_gbm <- testing(data_split_tree)
+data_split_gbm_off <- initial_split(off_total_efficiency, prop = 3/4)
+train_gbm_off <- training(data_split_gbm_off)
+test_gbm_off <- testing(data_split_gbm_off)
+
+data_split_gbm_def <- initial_split(def_total_efficiency, prop = 3/4)
+train_gbm_def <- training(data_split_tree_def)
+test_gbm_def <- testing(data_split_tree_def)
+##################################################################################################################
+#select model types / select recipe
+##################################################################################################################
+gbm_off <- recipe(total_pts~., data = train_tree_off) %>%
+  update_role(game_id, pos_team, new_role = 'id_variable') %>%
+  step_interact(terms = ~pass_success:avg_drive_time) %>%
+  step_zv(all_predictors()) %>%
+  step_lincomb(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+
+gbm_def <- recipe(total_pts~., data = train_tree_def) %>%
+  update_role(game_id, def_pos_team, new_role = 'id_variable') %>%
+  step_interact(terms = ~pass_success:avg_drive_time) %>%
+  step_zv(all_predictors()) %>%
+  step_lincomb(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
 ##################################################################################################################
 #select model types / select engine
 ##################################################################################################################
+gbm_mod <- boost_tree(mode = 'regression') %>%
+  set_engine('lightgbm')
 ##################################################################################################################
 # set workflows
 ##################################################################################################################
+library(lightgbm)
+library(bonsai)
+off_gbm_wflow <- workflow() %>%
+  add_model(gbm_mod) %>%
+  add_recipe(gbm_off)
+
+def_gbm_wflow <- workflow() %>%
+  add_model(gbm_mod) %>%
+  add_recipe(gbm_def)
 ##################################################################################################################
 #fit models
 ##################################################################################################################
+def_gbm_fit <- off_gbm_wflow %>%
+  fit(data = train_gbm_off)
+
+def_gbm_fit <- def_gbm_wflow %>%
+  fit(data = train_gbm_def)
 ##################################################################################################################
 #make predictions
 ##################################################################################################################
+gbm_preds_off <- predict(off_gbm_fit, test_gbm_off)
+gbm_bind_off <- bind_cols(gbm_preds_off, test_gbm_off %>% select(total_pts))
+rmse(.pred, total_pts, data = gbm_bind_off)
+
+gbm_preds_def <- predict(def_gbm_fit, test_gbm_def)
+gbm_bind_def <- bind_cols(gbm_preds_def, test_gbm_def %>% select(total_pts))
+rmse(.pred, total_pts, data = gbm_bind_def)
+##################################################################################################################
+#stack models
+##################################################################################################################
+library(stacks)
+off_stack <- 
+  stacks() %>%
+  add_candidates(off_reduced_wflow) %>%
+  add_candidates(off_tree_wflow) %>%
+  add_candidates(off_nn_wflow) %>%
+  add_candidates(off_gbm_wflow)
