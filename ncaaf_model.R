@@ -484,12 +484,12 @@ model_reduced_summary_def <- def_reduced_fit %>%
 #make predictions
 ##################################################################################################################
 reduced_preds_off <- predict(off_reduced_fit, test_reduced_off)
-bind_reduced_preds_off <- bind_cols(reduced_preds, test_reduced_off %>% select(total_pts))
-rmse(.pred, total_pts, data = bind_reduced_preds)
+bind_reduced_preds_off <- bind_cols(reduced_preds_off, test_reduced_off %>% select(total_pts))
+rmse(.pred, total_pts, data = bind_reduced_preds_off)
 
 reduced_preds_def <- predict(def_reduced_fit, test_reduced_def)
-bind_reduced_preds_off <- bind_cols(reduced_preds, test_reduced_def %>% select(total_pts))
-rmse(.pred, total_pts, data = bind_reduced_preds)
+bind_reduced_preds_def <- bind_cols(reduced_preds_def, test_reduced_def %>% select(total_pts))
+rmse(.pred, total_pts, data = bind_reduced_preds_def)
 ##################################################################################################################
 #tree based models
 ##################################################################################################################
@@ -525,7 +525,7 @@ tree_start_def <- recipe(total_pts~., data = train_tree_def) %>%
 #select model types / select engine
 ##################################################################################################################
 library(randomForest)
-tree_mod <- rand_forest(mode = 'regression', trees = 500, mtry = 3) %>%
+tree_mod <- rand_forest(mode = 'regression', trees = 1000, mtry = 55, min_n = 22) %>%
   set_engine('randomForest')
 ##################################################################################################################
 # set workflows
@@ -559,12 +559,12 @@ rmse(.pred, total_pts, data = tree_bind_def)
 #neural net model
 ##################################################################################################################
 data_split_nn_off <- initial_split(off_total_efficiency, prop = 3/4)
-train_nn_off <- training(data_split_tree)
-test_nn_off <- testing(data_split_tree)
+train_nn_off <- training(data_split_nn_off)
+test_nn_off <- testing(data_split_nn_off)
 
 data_split_nn_def <- initial_split(def_total_efficiency, prop = 3/4)
-train_nn_def <- training(data_split_tree_def)
-test_nn_def <- testing(data_split_tree_def)
+train_nn_def <- training(data_split_nn_def)
+test_nn_def <- testing(data_split_nn_def)
 ##################################################################################################################
 #select model types / select recipe
 ##################################################################################################################
@@ -624,12 +624,12 @@ train_gbm_off <- training(data_split_gbm_off)
 test_gbm_off <- testing(data_split_gbm_off)
 
 data_split_gbm_def <- initial_split(def_total_efficiency, prop = 3/4)
-train_gbm_def <- training(data_split_tree_def)
-test_gbm_def <- testing(data_split_tree_def)
+train_gbm_def <- training(data_split_gbm_def)
+test_gbm_def <- testing(data_split_gbm_def)
 ##################################################################################################################
 #select model types / select recipe
 ##################################################################################################################
-gbm_off <- recipe(total_pts~., data = train_tree_off) %>%
+gbm_off <- recipe(total_pts~., data = train_gbm_off) %>%
   update_role(game_id, pos_team, new_role = 'id_variable') %>%
   step_interact(terms = ~pass_success:avg_drive_time) %>%
   step_zv(all_predictors()) %>%
@@ -637,7 +637,7 @@ gbm_off <- recipe(total_pts~., data = train_tree_off) %>%
   step_center(all_numeric_predictors()) %>%
   step_scale(all_numeric_predictors())
 
-gbm_def <- recipe(total_pts~., data = train_tree_def) %>%
+gbm_def <- recipe(total_pts~., data = train_gbm_def) %>%
   update_role(game_id, def_pos_team, new_role = 'id_variable') %>%
   step_interact(terms = ~pass_success:avg_drive_time) %>%
   step_zv(all_predictors()) %>%
@@ -664,7 +664,7 @@ def_gbm_wflow <- workflow() %>%
 ##################################################################################################################
 #fit models
 ##################################################################################################################
-def_gbm_fit <- off_gbm_wflow %>%
+off_gbm_fit <- off_gbm_wflow %>%
   fit(data = train_gbm_off)
 
 def_gbm_fit <- def_gbm_wflow %>%
