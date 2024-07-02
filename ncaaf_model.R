@@ -54,16 +54,12 @@ pbp_clean <- data_prep(pbp_data)
 #################################################################################################################
 #pull data for neutral games
 #################################################################################################################
-gm_info_func <- function(start,end){
-  df <- data.frame()
-  while(start <= end){
-      x <- cfbd_game_info(year = start)    
-      df <- bind_rows(df,x)
-    }
-    start = start + 1
-  return(df)
-}
-gm_inf <- gm_info_func(2021,2023)
+x <- cfbd_game_info(year = 2021)
+y <- cfbd_game_info(year = 2022)
+z <- cfbd_game_info(year = 2023)
+game_info <- bind_rows(x,y,z)
+rm(x,y,z)
+
 #################################################################################################################
 #off and def efficiency
 #################################################################################################################
