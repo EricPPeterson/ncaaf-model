@@ -52,6 +52,19 @@ data_prep <- function(df){
 
 pbp_clean <- data_prep(pbp_data)
 #################################################################################################################
+#pull data for neutral games
+#################################################################################################################
+gm_info_func <- function(start,end){
+  df <- data.frame()
+  while(start <= end){
+      x <- cfbd_game_info(year = start)    
+      df <- bind_rows(df,x)
+    }
+    start = start + 1
+  return(df)
+}
+gm_inf <- gm_info_func(2021,2023)
+#################################################################################################################
 #off and def efficiency
 #################################################################################################################
 off_efficiency <- function(df, pos_def, oppo_tm, pass_run){
