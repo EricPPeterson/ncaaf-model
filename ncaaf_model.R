@@ -5,6 +5,8 @@ library(ggplot2)
 library(progressr)
 library(data.table)
 library(lookup)
+library(tidymodels)
+library(broom)
 #####################################################################################################################
 #function to pull pbp_data
 #####################################################################################################################
@@ -59,7 +61,17 @@ y <- cfbd_game_info(year = 2022)
 z <- cfbd_game_info(year = 2023)
 game_info <- bind_rows(x,y,z)
 rm(x,y,z)
+game_info <- game_info %>% dplyr::filter(home_division == 'fbs' & away_division == 'fbs')
+game_info <- game_info %>% dplyr::select(game_id, season, neutral_site, conference_game, venue_id)
+sched_str <- left_join(pbp_clean, game_info, by = c('game_id', 'season'))
+sched_str <- sched_str %>% select(c(game_id, season, wk, pos_team, def_pos_team, neutral_site, home, away, EPA))
+sched_str <- sched_str %>%
+  dplyr::mutate(hfa = case_when(
+    home == pos_team ~1,
+    home == def_pos_team ~-1 
+  ))
 
+sched_str$hfa <- ifelse(sched_str$neutral_site == TRUE,0,sched_str$hfa)
 #################################################################################################################
 #off and def efficiency
 #################################################################################################################
@@ -902,3 +914,84 @@ member_preds_def <-
 
 map(member_preds_def, rmse_vec, truth = member_preds_def$total_pts) %>%
   as_tibble()
+##################################################################################################################
+#ridge regression to adj for str of schedule
+##################################################################################################################
+sched_str_2021 <- sched_str %>% dplyr::filter(season == 2021)
+sched_str_2022 <- sched_str %>% dplyr::filter(season == 2022)
+sched_str_2023 <- sched_str %>% dplyr::filter(season == 2023)
+# define the model
+lm_mod <- linear_reg(penalty = tune(), mixture = 0) %>%
+  set_engine("glmnet")
+# hyperparameter tuning grid
+lambda_grid <- tibble(penalty = c(0, 10^seq(-2, 2, length.out = 25)))
+
+# define the recipe
+sched_str_2023 <- sched_str_2023 %>% 
+  dplyr::select(-c(game_id, season, wk, neutral_site, home,away)) %>%
+  dplyr::filter(!is.na(hfa))
+  lm_rec <- recipe(EPA ~ ., data = sched_str_week) %>% 
+    step_dummy(all_nominal_predictors(), one_hot = TRUE)
+# create cross-validation folds
+folds <- vfold_cv(sched_str_2023)
+# define the workflow
+lm_wflow <- workflow() %>%
+  add_model(lm_mod) %>%
+  add_recipe(lm_rec)
+# get the tuning results
+lm_res <- lm_wflow %>%
+  tune_grid(
+  resamples = folds,
+  grid = lambda_grid,
+  control = control_grid(save_pred = TRUE))
+# get the model with the lowest root mean squared error
+  lowest_rmse <- lm_res %>% select_best('rmse')
+  # finalize the workflow with the best model
+  lm_final_wf <- lm_wflow %>%
+    finalize_workflow(lowest_rmse)
+  # get the final fit
+  lm_final_fit <- lm_final_wf %>%
+    fit(pbp21 %>% filter(week <= wk) %>% select(-c(game_id, season, wk, neutral_site, home, away)))
+  # extract the coefficients
+  adjStats <- broom::tidy(lm_final_fit) %>%
+    separate(term, into = c("side", "team"), sep = "_", fill = "left") %>%
+    select(-penalty)
+  # separate the intercept and home field advantage coefficients
+  otherTerms <- adjStats %>%
+    slice(1:2) %>%
+    select(-side)
+  # get the remaining coefficients
+  adjStats <- adjStats %>%
+    slice(3:nrow(adjStats))
+  # add the intercept term to the other coefficients
+  adjStats <- adjStats %>%
+    mutate(estimate = estimate + otherTerms %>% filter(team == "(Intercept)") %>% .$estimate)
+  # fix team name formatting (Oregon.State to Oregon State)
+  adjStats <- adjStats %>%
+    mutate(team = stringr::str_replace_all(team, "\\.", " "))
+  # make dataframe wider
+  adjStats <- adjStats %>%
+    pivot_wider(names_from = side, values_from = estimate) %>%
+    rename("adjOff" = "offense", "adjDef" = "defense")
+  # get the unadjusted (raw) stats - although I don't need this for the plot later
+  rawOff <- pbp21 %>% group_by(offense) %>% summarize(meanPPA = mean(ppa)) %>%
+    rename("team" = "offense", "rawOff" = "meanPPA")
+  # same thing for raw defense
+  rawDef <- pbp21 %>% group_by(defense) %>% summarize(meanPPA = mean(ppa)) %>%
+    rename("team" = "defense", "rawDef" = "meanPPA")
+  # bind everything together into one dataframe
+  if (wk == 1){
+    df <- adjStats %>%
+      left_join(rawOff, by = "team") %>%
+      left_join(rawDef, by = "team") %>%
+      mutate(week = wk)}
+  else{
+    df_new <-
+      adjStats %>%
+      left_join(rawOff, by = "team") %>%
+      left_join(rawDef, by = "team") %>%
+      mutate(week = wk)
+    
+    df <- df %>% bind_rows(df_new)
+  }
+}
