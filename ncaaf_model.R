@@ -917,21 +917,25 @@ map(member_preds_def, rmse_vec, truth = member_preds_def$total_pts) %>%
 ##################################################################################################################
 #ridge regression to adj for str of schedule
 ##################################################################################################################
+colnames(sched_str)[4:5] <- c('Offense', 'Defense')
 sched_str_2021 <- sched_str %>% dplyr::filter(season == 2021)
 sched_str_2022 <- sched_str %>% dplyr::filter(season == 2022)
 sched_str_2023 <- sched_str %>% dplyr::filter(season == 2023)
+
+# define the recipe
+sched_str_2021 <- sched_str_2021 %>% 
+  dplyr::select(-c(game_id, season, wk, neutral_site, home,away)) %>%
+  dplyr::filter(!is.na(hfa))
+lm_rec <- recipe(EPA ~ ., data = sched_str_2021) %>% 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
 # define the model
 lm_mod <- linear_reg(penalty = tune(), mixture = 0) %>%
   set_engine("glmnet")
 # hyperparameter tuning grid
 lambda_grid <- tibble(penalty = c(0, 10^seq(-2, 2, length.out = 25)))
 
-# define the recipe
-sched_str_2023 <- sched_str_2023 %>% 
-  dplyr::select(-c(game_id, season, wk, neutral_site, home,away)) %>%
-  dplyr::filter(!is.na(hfa))
-  lm_rec <- recipe(EPA ~ ., data = sched_str_week) %>% 
-    step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
 # create cross-validation folds
 folds <- vfold_cv(sched_str_2023)
 # define the workflow
