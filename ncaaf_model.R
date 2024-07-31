@@ -974,8 +974,6 @@ adjStats <-
   separate(term, into = c("side", "team"), sep = "_", fill = "left") %>%
   select(-penalty)
 
-adjStats$team <- chartr(".", " ", adjStats$team)
-
 # separate the intercept and home field advantage coefficients
 otherTerms <-
   adjStats %>%
@@ -1002,7 +1000,33 @@ rawOff <-
 rawDef <-
   sched_str_2023 %>% group_by(Defense) %>% summarize(meanEPA = mean(EPA)) %>%
   rename('team' = 'Defense', 'rawDef' = 'meanEPA')
-  
+
+#fix some team names
+adjStats$team <- chartr(".", " ", adjStats$team)
+
+adjStats <-
+  adjStats %>% mutate(team = case_when(
+    team == "Hawai i" ~ "Hawai'i",
+    team == "Miami  OH " ~ "Miami (OH)",
+    team == "Texas A M" ~ "Texas A&M",
+    team == 'Texas A M Commerce' ~ 'Texas A&M Commerce',
+    team == 'Alabama A M' ~ 'Alabama A&M',
+    team == 'Florida A M' ~ 'Florida A&M',
+    team == 'North Carolina A T' ~ 'North Carolina A&T',
+    team == 'Northwestern IA' ~ 'Northwestern (IA)',
+    team == 'St Francis PA' ~ 'St Francis (PA)',
+    team == 'St Andrews' ~ 'St. Andrews',
+    team == 'St Thomas MN' ~ 'St. Thomas (MN)',
+    team == 'Stephen F Austin' ~ 'Steven F. Austin',
+    team == 'Lincoln University CA' ~ 'Lincoln University (CA)',
+    team == 'Gardner Webb' ~ 'Gardner-Webb',
+    team == 'Arkansas Pine Bluff' ~ 'Arkansas-Pine Bluff',
+    team == 'Bethune Cookman' ~ 'Bethune-Cookman',
+    team == 'Northwestern IA' ~ 'Northwestern (IA)',
+    team == 'William  Mary' ~ 'William & Mary',
+    TRUE ~ team
+  ))
+
 # bind everything together into one dataframe
 adj_final <-
   adjStats %>%
