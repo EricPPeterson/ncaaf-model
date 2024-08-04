@@ -1035,7 +1035,9 @@ adjStats <-
 adj_final <-
   adjStats %>%
     left_join(rawOff, by = 'team') %>%
-    left_join(rawDef, by = 'team')
+    left_join(rawDef, by = 'team') %>%
+  dplyr::mutate(off_change = adjOff - rawOff,
+                def_change = adjDef - rawDef)
 #################################################################################################################
 #add offensive and defensive plays
 #################################################################################################################
@@ -1043,4 +1045,24 @@ pbp_data_2023 <- pbp_func(2023,2023)
 fwrite(pbp_data_2023, 'pbp_data_2023.csv', row.names = FALSE)
 pbp_data_2023 <- read.csv("~/GitHub/ncaaf-model/pbp_data_2023.csv")
 
-
+total_plays <- function(df, pos_def){
+  out <- df %>% group_by(!!sym(pos_def)) %>%
+    dplyr::summarise(plays = n(),
+                     games = n_distinct(game_id),
+                     plays_per_game = plays/games)
+  x <- ifelse(pos_def == 'pos_team','off_plays_per_game', 'def_plays_per_game')
+  colnames(out) <- c('team', 'plays', 'games', x)
+  return(out)
+}
+off_plays <- total_plays(pbp_data_2023, 'pos_team')
+def_plays <- total_plays(pbp_data_2023, 'def_pos_team')
+plays <- left_join(off_plays, def_plays, by = c('team')) %>%
+  select(c('team', 'off_plays_per_game', 'def_plays_per_game'))
+###################################################################################################################
+#join to strength of schedule
+###################################################################################################################
+adj_final_plays <- left_join(adj_final, plays, by = c('team'))
+adj_pts_final <- adj_final_plays %>%
+  dplyr::mutate(off_adj = off_change * off_plays_per_game,
+         def_adj = def_change * def_plays_per_game) %>%
+  dplyr::select(team, off_adj, def_adj)
