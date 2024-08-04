@@ -10,6 +10,14 @@ library(broom)
 library(yardstick)
 library(stringr) 
 library(stacks)
+library(recipes)
+library(parsnip)
+library(magrittr)
+library(mice)
+library(tidyverse)
+library(tidymodels)
+library(rsample)
+library(workflows)
 #####################################################################################################################
 #function to pull pbp_data
 #####################################################################################################################
@@ -289,7 +297,6 @@ avg_dr_def <- drive_function(pbp_clean, 'def_pos_team')
 ##################################################################################################################
 #combine play and drive data with efficiency DFs
 ##################################################################################################################
-library(tidyverse)
 off_total_efficiency <- list(off_total_efficiency,off_pass_eff_1,off_pass_eff_2,off_pass_eff_3,
                              off_rush_eff_1, off_rush_eff_2, off_rush_eff_3) %>% 
   reduce(left_join, by = c('game_id', 'pos_team'))
@@ -343,7 +350,6 @@ def_total_pts <- def_total_pts %>% select(-c(3,4))
 ##################################################################################################################
 #join pts to offensive efficiency
 ##################################################################################################################
-library(mice)
 off_total_efficiency <- left_join(off_total_efficiency, off_total_pts, by = c('game_id', 'pos_team'))
 off_total_efficiency <- off_total_efficiency %>% 
   dplyr::select(-c(11:20, 79))
@@ -368,8 +374,6 @@ def_total_efficiency <- def_total_efficiency[complete.cases(def_total_efficiency
 ##################################################################################################################
 #linear model
 ##################################################################################################################
-library(tidyverse)
-library(tidymodels)
 ##################################################################################################################
 #split data
 ##################################################################################################################
@@ -922,8 +926,6 @@ library(fastDummies)
 library(ISLR)
 library(glmnet)
 colnames(sched_str)[4:5] <- c('Offense', 'Defense')
-sched_str_2021 <- sched_str %>% dplyr::filter(season == 2021)
-sched_str_2022 <- sched_str %>% dplyr::filter(season == 2022)
 sched_str_2023 <- sched_str %>% dplyr::filter(season == 2023)
 
 # define the model
@@ -1035,3 +1037,10 @@ adj_final <-
     left_join(rawOff, by = 'team') %>%
     left_join(rawDef, by = 'team')
 #################################################################################################################
+#add offensive and defensive plays
+#################################################################################################################
+pbp_data_2023 <- pbp_func(2023,2023)
+fwrite(pbp_data_2023, 'pbp_data_2023.csv', row.names = FALSE)
+pbp_data_2023 <- read.csv("~/GitHub/ncaaf-model/pbp_data_2023.csv")
+
+
