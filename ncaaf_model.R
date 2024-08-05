@@ -1066,3 +1066,6 @@ adj_pts_final <- adj_final_plays %>%
   dplyr::mutate(off_adj = off_change * off_plays_per_game,
          def_adj = def_change * def_plays_per_game) %>%
   dplyr::select(team, off_adj, def_adj)
+###################################################################################################################
+#2023 numbers by team
+###################################################################################################################
